@@ -1,0 +1,341 @@
+/* -*- Mode: C++; c-basic-offset: 4; indent-tabs-mode: nil; tab-width: 4 -*- */
+/* vi: set ts=4 sw=4 expandtab: (add to ~/.vimrc: set modeline modelines=5) */
+/* ***** BEGIN LICENSE BLOCK *****
+ * Version: MPL 1.1/GPL 2.0/LGPL 2.1
+ *
+ * The contents of this file are subject to the Mozilla Public License Version
+ * 1.1 (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ * http://www.mozilla.org/MPL/
+ *
+ * Software distributed under the License is distributed on an "AS IS" basis,
+ * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
+ * for the specific language governing rights and limitations under the
+ * License.
+ *
+ * The Original Code is [Open Source Virtual Machine.].
+ *
+ * The Initial Developer of the Original Code is
+ * Adobe System Incorporated.
+ * Portions created by the Initial Developer are Copyright (C) 2004-2006
+ * the Initial Developer. All Rights Reserved.
+ *
+ * Contributor(s):
+ *   Adobe AS3 Team
+ *
+ * Alternatively, the contents of this file may be used under the terms of
+ * either the GNU General Public License Version 2 or later (the "GPL"), or
+ * the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
+ * in which case the provisions of the GPL or the LGPL are applicable instead
+ * of those above. If you wish to allow use of your version of this file only
+ * under the terms of either the GPL or the LGPL, and not to allow others to
+ * use your version of this file under the terms of the MPL, indicate your
+ * decision by deleting the provisions above and replace them with the notice
+ * and other provisions required by the GPL or the LGPL. If you do not delete
+ * the provisions above, a recipient may use your version of this file under
+ * the terms of any one of the MPL, the GPL or the LGPL.
+ *
+ * ***** END LICENSE BLOCK ***** */
+
+use namespace "flash.utils";
+
+class SRECT
+{
+	public var xmin;
+	public var xmax;
+	public var ymin;
+	public var ymax;
+}
+
+public class SwfMaker
+{
+    public static const stagShowFrame       = 1;
+    public static const stagEnableDebugger2 = 64;   // this movie may be debugged
+    public static const stagDebugID			= 63;   // unique ID to match up swf with swd
+    public static const stagFileAttributes	= 69;
+    public static const stagDoABC           = 82;
+    public static const stagSymbolClass     = 76;
+
+	// Flags for stagFileAttributes
+	public static const swfFlagsUseNetwork          = 0x00000001;  // when this SWF is local, give it network access instead of local access
+	public static const swfFlagsSwfRelativeUrls     = 0x00000002;  // relative URL paths in this SWF are relative to SWF location rather than browser location
+	public static const swfFlagsNoCrossdomainCache  = 0x00000004;  // do not add this SWF to the Asset Cache
+	public static const swfFlagsAS3                 = 0x00000008;  // this SWF contains AVM+ bytecodes
+	public static const swfFlagsHasMetadata         = 0x00000010;  // this SWF contains stagMetadata somewhere
+	// (this is not relevant to the player, but is relevant to search engines)
+	public static const kDefaultSwfFlags            = 0x00000000;   // these flags are assumed when no stagFileAttributes is present
+
+	function CoreAbs(x:int) { return (x<0) ? (-x) : x; }
+
+    var bitPos;
+    var bitBuf;
+    public var buffer;
+
+	var	tagCode;
+	var	tagPos;
+	var	tagLen;
+	var	tagIsBig;
+
+    public function SwfMaker()
+    {
+	    tagCode			= 0;
+	    tagPos			= 0;
+	    tagLen			= 0;
+	    tagIsBig		= false;
+        buffer = new ByteArray();
+        buffer.endian = "littleEndian";
+    }
+
+	function SetPos(pos)
+	{
+        buffer.position = pos;
+	}
+	
+	function CheckSpace(count)
+	{
+		//buffer.resize(pos+count);
+	}
+
+    function PutArrayOfBytes (data: Array) {
+        for (let i=0; i<data.length; ++i) {
+            buffer.writeByte (data[i]&0xff);
+        }
+    }
+
+    function PutData(data: ByteArray)
+    {
+		//for (var i=0; i<data.length; i++) {
+		//	buffer.writeByte (data.readByte ());
+		//}
+        buffer.writeBytes (data);
+    }
+
+    function PutByte(b)
+    {
+		CheckSpace(1);
+		//buffer.set(pos++, b);
+        buffer.writeByte (b);
+    }
+	
+	function PutString(str)
+	{
+        //PutData(str.getBytes());
+		//PutByte((byte)0);
+        buffer.writeUTFBytes (str);
+        buffer.writeByte (0);
+	}
+
+    function PutWord(d)
+    {
+		//buffer.set(pos++,d);
+        //buffer.set(pos++, (byte)(d>>8));
+        buffer.writeByte ((d)&0xff)
+        buffer.writeByte ((d>>8)&0xff)
+    }
+
+    function PutDWord(d)
+    {
+		//CheckSpace(4);
+        //buffer.set(pos++, (byte)d);
+        //buffer.set(pos++, (byte)(d>>8));
+        //buffer.set(pos++, (byte)(d>>16));
+        //buffer.set(pos++, (byte)(d>>24));
+        //print("buffer.position",buffer.position);
+        //print("d",d);
+        //buffer.writeUInt (d);
+        buffer.writeByte ((d)&0xff)
+        buffer.writeByte ((d>>8)&0xff)
+        buffer.writeByte ((d>>16)&0xff)
+        buffer.writeByte ((d>>24)&0xff)
+        //print("buffer.position",buffer.position);
+        //print("buffer.bytesAvailable",buffer.bytesAvailable);
+        //print("buffer.length",buffer.length);
+        //print("buffer.readInt()",buffer.readInt());
+    }
+
+    function StartTag(code, isBig)
+    {
+	    //assert(tagCode==0);
+	    
+	    tagCode = code;
+	    tagPos = buffer.position;
+	    tagIsBig = isBig;
+	    
+	    PutWord(0);
+	    if ( isBig ) {
+		    PutDWord(0);
+        }
+    }
+    
+    function FinishTag()
+    {
+	    var savePos = buffer.position;
+	    var tagLen = buffer.position - tagPos - (tagIsBig ? 6 : 2);
+        buffer.position = tagPos;
+	    if (tagIsBig) {
+		    PutWord(((tagCode<<6) | 63));
+		    PutDWord(tagLen);
+	    } else {
+		    //assert(tagLen < 0x3f);
+		    PutWord(((tagCode<<6) | tagLen));
+	    }
+	    buffer.position = savePos;
+	    tagCode = 0;
+    }
+
+    function CountBits(v)
+    {
+	    var n = 0;
+	    while ( (v & ~0xF) != 0 ) {
+		    v = v >> 4;
+	 	    n = n + 4;
+	    }
+	    while ( v != 0 ) {
+		    v = v >> 1;
+		    n++;
+	    }
+	    return n;
+    }
+
+    function CheckMag(v, mag)
+    {
+	    if ( v < 0 ) v = -v;
+	    return v > mag ? v : mag;
+    }
+
+    function InitBits()
+    {
+	    bitPos = 8;
+	    bitBuf = 0;
+    }
+
+    function FlushBits()
+    {
+	    if ( bitPos < 8 )
+	      PutByte(bitBuf);
+    }
+
+    function PutBits(v, n)
+    {
+        if ( n <= 0 ) 
+            return;
+        for (;;n) {
+            v = v & (0xFFFFFFFF >> (32-n));	// mask off any extra bits, note this does not work for n == 0, hence check for zero above
+            var s = n - bitPos;	// The number of bits more than the buffer will hold
+            if ( s <= 0 ) {
+                // This fits in the buffer, add it and finish
+                bitBuf = bitBuf | (v << -s);
+                bitPos = bitPos - n;	// we used x bits in the buffer
+                return;
+            } else {
+                // This fills the buffer, fill the remaining space and try again
+                bitBuf = bitBuf | (v >> s);
+                n = n - bitPos;	// we places x bits in the buffer
+                PutByte(bitBuf);
+                bitBuf = 0;
+                bitPos = 8;
+
+            }
+        }
+    }
+
+    function PutRect(r)
+    {
+	    InitBits();
+    
+	    var mag = CheckMag(r.xmin, CheckMag(r.xmax, CheckMag(r.ymin, CoreAbs(r.ymax))));
+	    var nBits = CountBits(mag)+1;	// include a sign bit
+        
+        if (nBits<15) nBits = 15;
+
+	    PutBits(nBits, 5);
+	    PutBits(r.xmin, nBits);
+	    PutBits(r.xmax, nBits);
+	    PutBits(r.ymin, nBits);
+	    PutBits(r.ymax, nBits);
+
+	    FlushBits();
+    }
+
+	public function makeSwf (abcList,
+                             className)
+	{
+        PutByte('F'.charCodeAt(0));
+        PutByte('W'.charCodeAt(0));
+        PutByte('S'.charCodeAt(0));
+        PutByte(9);
+        PutDWord(0);
+
+        var width = 900;
+        var height = 600;
+
+		var bounds = new SRECT();
+		bounds.xmin = 0;
+		bounds.ymin = 0;
+		bounds.xmax = width*20;
+		bounds.ymax = height*20;
+        var fps = 12;
+        var useNetwork = false;
+		PutRect(bounds);
+		PutWord(fps<<8);   // frame rate
+		PutWord(1);       // # of frames  SDD ### Change to sensicle number
+
+		StartTag(stagFileAttributes, false);
+		PutDWord(swfFlagsAS3|useNetwork);
+		FinishTag();
+
+        var debug = false;
+		if (debug)
+		{
+			StartTag(stagEnableDebugger2, false);
+			PutWord(0x1975);
+			PutString("");
+			FinishTag();
+			
+			StartTag(stagDebugID, false);
+            PutArrayOfBytes ([0xCA, 0x49, 0x96, 0xC7, 
+                              0x57, 0x8E, 0x20, 0x02, 
+						      0xDD, 0x92, 0xA6, 0x3F, 
+                              0x18, 0x78, 0xC5, 0xBC]);
+			FinishTag();
+		}
+
+        for (var i=0, len=abcList.length; i<len; ++i) {
+            StartTag(stagDoABC, true);
+            PutDWord(0); // attrs
+            PutByte(0);  // source name string terminator
+            PutData(abcList[i]);
+            FinishTag();
+        }
+
+		if (className != null)
+		{
+			StartTag(stagSymbolClass, false);
+			PutWord(1);
+			PutWord(0);
+			PutString(className);
+			FinishTag();
+		}
+
+        // Show Frame
+        StartTag(stagShowFrame, false);
+        FinishTag();
+
+		// Set the length
+		var size = buffer.length;
+		SetPos(4);
+        //print ("size",size);
+        //buffer.endian = "littleEndian";
+		PutDWord(size);
+        //buffer.endian = "bigEndian";
+		return buffer;
+	}
+};
+
+function dumpSWFFile(abcs, fname) {
+    var maker = new SwfMaker ();
+    var bytes = maker.makeSwf (abcs, "Main");
+    bytes.writeFile(fname);
+    return bytes.length;
+}
+

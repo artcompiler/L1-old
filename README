@@ -1,3 +1,31 @@
-L1 is written in L0
-L1 is written by Jeff Dyer {jd[at]artcompiler[dot]org
-L1 is used to compile JavaScript to various visualizations
+OVERVIEW
+
+L1 is a language with JavaScript syntax and visualization semantics. It compiles
+JavaScript code to a collection of graphics files (PNG and SVG) that render the
+static semantics of the input.
+
+
+BUILDING
+
+To build:
+
+   cd build
+   ./make.sh
+
+This produces the file:
+
+   ../bin/l1c.swf
+
+
+USING
+
+To run:
+
+    shell l1c.swf -- some.source.js
+
+This produces the file:
+
+    some.source.js.karyotype
+
+(and possibly supplementary files.)
+

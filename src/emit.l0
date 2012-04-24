@@ -70,24 +70,74 @@ use namespace Abc,
     namespace Util;
 
 class KaryotypeEmitter {
-    var karyotypeData = "";
-    var labelData = "";
     var chr_name = "";
 
+    var defsStack = [ ];
     var refsStack = [ ];
     var blksStack = [ ];
     var bodsStack = [ ];
+    var objsStack = [ ];
 
 
     function log(s) {
-        karyotypeData += "\n" + s;
     }
+
     private var numRefs = 1;
-    function addRef(ctx, s="empty", b=0) {
-        labelData += "\n" + chr_name + " " + numRefs + " " + numRefs + " " + s;
-        //print("addRef() count="+lastRef());
-        ref(s, b);
+
+    function addDef(ctx, s="anonymous", val="null", isGlobal=false, toks=null) {
+        //print("addDef() s="+s+" count="+lastDef());
+        def(s, val, isGlobal, toks);
         return numRefs++;
+    }
+
+    function addRef(ctx, s="empty", b="program", toks=null) {
+        //print("addRef() s="+s+" b="+b);
+        ref(s, b, toks);
+        return numRefs++;
+    }
+
+    function def(n, v, isGlobal, t) {
+        print("def() n="+n);
+        var def = {name: String(n), val: v, tokens: t}
+        if (isGlobal) {
+            var defs = defsStack[0]
+        }
+        else {
+            var defs = defsStack[defsStack.length-1]
+        }
+        
+        if (defs.every(notFound)) {
+            defs.push(def);
+        }
+
+        function notFound(v, i, o) {
+            if (v.name == n) {
+                return false;
+            }
+            return true;
+        }
+    }
+
+    function ref(n, b, t) {
+        t = t ? t : [ ]
+        var ref = {name: String(n), base: b, tokens: t}
+        var refs = refsStack[refsStack.length-1]
+
+        if (refs.every(notFound)) {
+            refs.push(ref);
+        }
+
+        function notFound(v, i, o) {
+            if (v.name == n) {
+                return false;
+            }
+            return true;
+        }
+    }
+
+
+    function lastDef() {
+        return defsStack[defsStack.length-1].length;
     }
 
     function lastRef() {
@@ -100,7 +150,7 @@ class KaryotypeEmitter {
     private var numUnresolvedRefs = 1;
     function addUnresolvedRef(s="empty") {
         var catchall_name = chr_name.substring(0, chr_name.indexOf("_")) + "_catchall";
-        labelData += "\n" + catchall_name + " " + numUnresolvedRefs + " " + numUnresolvedRefs + " " + s;
+        //print("addUnresolvedRef() s="+s);
         return numUnresolvedRefs++;
     }
     function unrefCount() {
@@ -110,35 +160,68 @@ class KaryotypeEmitter {
         numRefs = 1;
     }
     function finalize(fname) {
-        Util::writeStringToFile (karyotypeData,fname+".karyotype");
-        Util::writeStringToFile (labelData,fname+".labels");
-        //print("labelData="+labelData);
-        return karyotypeData;
+        //print("fname="+fname);        
+        Util::writeStringToFile (serialize(module), fname+".l4");
     }
 
     var module;
     function enterModule() {
-        module = { pool: [ ], bods: [ ] };
+        module = { pool: [ ], bods: [ ], objs: [ ] };
         bodsStack.push([]);
+        objsStack.push([]);
     }
 
     function exitModule() {
-        print(serialize(module));
-        module = null;
+        //print(serialize(module));
+        //module = null;
     }
 
-    function enterBody(name="anonymous") {
-        print("enterBody() name="+name);
-        var body = { name: name, blocks: [ ] };
+    function enterClosure(name="anonymous", alias="anonymous") {
+        var currentBods = bodsStack[bodsStack.length-1];
+        var currentBod = currentBods.length > 0 ? currentBods[currentBods.length-1] : { name: "null" };
+        print("enterClosure() name="+name+" alias="+alias+" outer="+currentBod.name);
+        var closure = { name: name, alias: alias, outer: currentBod.name, slots: [ ], blocks: [ ] };
+        bodsStack[bodsStack.length-1].push(closure);
+        blksStack.push(closure.blocks);
+        //defsStack.push(closure.slots);
+        enterBlock()
+    }
+
+    function currentClosure() {
+        var currentBods = bodsStack[bodsStack.length-1];
+        var currentBod = currentBods.length > 0 ? currentBods[currentBods.length-1] : { name: "null" };
+        return currentBod;
+    }
+
+    function exitClosure() {
+        exitBlock()
+        blksStack.pop();
+        var body = bodsStack[bodsStack.length-1].pop();
+        module.bods.push(body);
+        var currentBods = bodsStack[bodsStack.length-1];
+        print("exitClosure()")
+    }
+
+    function enterBody(name="anonymous", alias="anonymous") {
+        var currentBods = bodsStack[bodsStack.length-1];
+        var currentBod = currentBods.length > 0 ? currentBods[currentBods.length-1] : { name: "null" };
+        //print("enterBody() name="+name+" alias="+alias+" outer="+currentBod.name);
+        var body = { name: name, alias: alias, outer: currentBod.name, blocks: [ ] };
         bodsStack[bodsStack.length-1].push(body);
         blksStack.push(body.blocks);
+    }
+
+    function currentBody() {
+        var currentBods = bodsStack[bodsStack.length-1];
+        var currentBod = currentBods.length > 0 ? currentBods[currentBods.length-1] : { name: "null" };
+        return currentBod;
     }
 
     function exitBody() {
         blksStack.pop();
         var body = bodsStack[bodsStack.length-1].pop();
-        print("exitBody() name=" + body.name);
-        //print(serialize(body));
+        //print("exitBody() name=" + body.name);
+        //print("exitBody() " + serialize(body));
         module.bods.push(body);
         //for each (var ref in blks[0].refs) {
         //    print("ref name="+ref.name+" base="+ref.base);
@@ -146,20 +229,18 @@ class KaryotypeEmitter {
     }
 
     function enterBlock() {
-        print("enterBlock()");
-        var blk = { refs: [ ], preds: [ ], succs: [ ] }
+        //print("enterBlock()");
+        var blk = { slots: [ ], defs: [ ], refs: [ ], preds: [ ], succs: [ ] }
         blksStack[blksStack.length-1].push(blk);
+        //defsStack.push(blk.defs);
         refsStack.push(blk.refs);
+        defsStack.push(blk.slots);
     }
 
     function exitBlock() {
         refsStack.pop();
-        print("exitBlock()");
-    }
-
-    function ref(n, b=0) {
-        var ref = {name: String(n), base: b}
-        refsStack[refsStack.length-1].push(ref);
+        defsStack.pop();
+        //print("exitBlock()");
     }
 
     function serialize(obj, isArray=false) {
@@ -169,7 +250,7 @@ class KaryotypeEmitter {
             str += "[";
         }
         else {
-            str += "{";
+            str += "\n{";
         }
 
         for (var p in obj) {

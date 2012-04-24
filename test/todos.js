@@ -27,12 +27,13 @@ $(function(){
 
   });
 
+
   // Todo Collection
   // ---------------
 
   // The collection of todos is backed by *localStorage* instead of a remote
   // server.
-  window.TodoList = Backbone.Collection.extend({
+    window.TodoList = Backbone.Collection.extend({
 
     // Reference to this collection's model.
     model: Todo,
@@ -209,7 +210,7 @@ $(function(){
 
     // Clear all done todo items, destroying their models.
     clearCompleted: function() {
-      _.each(Todos.done(), function(todo){ todo.destroy(); });
+      _.Each(Todos.done(), function(todo){ todo.destroy(); });
       return false;
     },
 

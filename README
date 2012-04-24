@@ -5,6 +5,7 @@ JavaScript code to a collection of graphics files (PNG and SVG) that render the
 static semantics of the input.
 
 
+
 BUILDING
 
 To build:
@@ -21,11 +22,13 @@ USING
 
 To run:
 
-    shell l1c.swf -- some.source.js
+   ./comp.sh some.source.js
 
 This produces the file:
 
     some.source.js.karyotype
+    some.source.js.l4
+    some.source.js-breaks.links
 
 (and possibly supplementary files.)
 

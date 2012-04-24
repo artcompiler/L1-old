@@ -146,7 +146,7 @@ function cg(tree: PROGRAM) {
     // emit cpool ideograph
     let chr_name = tree.file + "_cpool";
     ke.chr_name = chr_name = chr_name.substring(chr_name.lastIndexOf('/')+1);
-    print("constants.length="+e.constants.utf8_map.size);
+    //print("constants.length="+e.constants.utf8_map.size);
     ke.log("chr - " + chr_name + " " + chr_name + " 0 " + e.constants.utf8_map.size + " " +  "green");
 
     // emit global catchall ideograph
@@ -233,13 +233,11 @@ function cgProgram(ctx, prog) {
     cgDebugFile(ctx);
     var {kemitter: ke} = ctx;
     ke.enterModule();
-    ke.enterBody("program");
+    ke.enterClosure("program", "program");
     if (prog.head.fixtures != null)
         cgFixtures(ctx, prog.head.fixtures);
-    ke.enterBlock();
     cgStmts(ctx, prog.body);
-    ke.exitBlock();
-    ke.exitBody();
+    ke.exitClosure();
     ke.exitModule();
 }
 
@@ -258,7 +256,7 @@ function cgGetFixtureNameParts(ctx, fxname) {
 }
 
 function cgFixtures(ctx, fixtures) {
-    let {target, asm, emitter} = ctx;
+    let {target, asm, emitter, kemitter:ke} = ctx;
     let {slots, use_regs, scope_reg} = getVariableDefinitionScope(ctx);
     
     if( use_regs ) {
@@ -353,8 +351,8 @@ function cgFixtures(ctx, fixtures) {
                 Gen::internalError(ctx, "Unhandled fixture type " + fx);
             }
             if(slot_id != -1 && slots ){
-                //print("adding slot for ", fxname.name.id, "to", ctx.stk.tag, "slot_id ", slot_id);
-                slots.putBinding(fxname.name.id, fxname.name.ns, new Ast::SlotBind(slot_id, scope_reg));
+                //print("adding slot for ", fxname.name.id, "to", ctx.stk.tag, "slot_id ", slot_id, "scope_name", ke.currentBody().name);
+                slots.putBinding(fxname.name.id, fxname.name.ns, new Ast::SlotBind(slot_id, scope_reg, ke.currentClosure().name));
             }
         }
     }
@@ -598,6 +596,8 @@ function cgFunc(ctx0, f:Func) {
     let {emitter, script, cp, kemitter: ke} = ctx0;
     ke.clearRefCount();
 
+    //print("cgFunc() vars.length="+f.vars.fixtures.length+" params.length="+f.params.fixtures.length);
+
     let use_regs = early_binding && !f.attr.reify_activation;
     let fntype = ctx0.stk != null && (ctx0.stk.tag == "instance" || ctx0.stk.tag == "class")? "method" : "function";  // brittle as hell
     let formals_types = extractFormalTypes({emitter:emitter, script:script}, f);
@@ -610,19 +610,20 @@ function cgFunc(ctx0, f:Func) {
         name = f.name.ident;
 
 
-
-
     var str_name = name.toString();
     var sub_name = str_name.substring(str_name.lastIndexOf("/")+1, str_name.lastIndexOf(":")) + "_" +
                    str_name.substring(str_name.lastIndexOf(":")+1, str_name.lastIndexOf(">"));
 
     let chr_name = ke.chr_name = sub_name=="_" ? str_name : sub_name;
 
-    ke.enterBody(chr_name);
+    if (f.alias == null) {
+        alias = chr_name
+    }
+    else {
+        alias = f.alias
+    }
 
-    //print("cgFunc() chr_name="+chr_name);
-
-
+    ke.enterClosure(chr_name, String(alias));
 
     let method = new Method(emitter, formals_types, cp.symbolUtf8(name), fntype != "function", f.attr);
 
@@ -678,7 +679,37 @@ function cgFunc(ctx0, f:Func) {
          * code then the default behavior of the emitter is to add a returnvoid
          * at the end, so there's nothing to worry about here.
          */
-        ke.enterBlock();   // these are basic blocks so do cfg
+
+        for each (var fx in f.params.fixtures) { 
+            let id;
+            switch type (fx.name) {
+            case (n: PropName) {
+                id = n.name.id;
+                ke.addDef(ctx0, id, "", false, [ ]);
+            }
+            case (n: *) {
+                id = "unknown"
+            }
+            }
+        }
+
+        for each (var fx in f.vars.fixtures) { 
+            let id;
+            switch type (fx.name) {
+            case (n: TempName) {
+                id = "t"+n.index;
+            }
+            case (n: PropName) {
+                id = n.name.id;
+            }
+            case (n: *) {
+                id = "unknown"
+            }
+            }
+            //print("cgFunc() fx.name="+id);
+            ke.addDef(ctx0, id, "", false, []);
+        }
+
         cgStmts(fnctx, f.body);
         if( !use_regs )
             asm.killTemp(scope_reg);
@@ -686,17 +717,17 @@ function cgFunc(ctx0, f:Func) {
             asm.I_getlocal(capture_reg);
             asm.I_returnvalue();
         }
-        ke.exitBlock();
+        ke.currentClosure().tokens = f.toks();
     }
 
+    f.chrName = chr_name;
 
     //print("cgFunc() name="+sub_name);
 
     //print("cgFunc() 2 chr_name="+chr_name);
 
     var mid = method.finalize();
-    ke.log("chr - " + chr_name + " " + chr_name + " 0 " + ke.refCount() + " " +  "blue" /*"spectral-5-div-"+(asm.length%5+1)*/);
-    ke.exitBody();
+    ke.exitClosure();
     return mid;
 }
 
@@ -989,8 +1020,9 @@ function pushFunction({stk}, function_type, scope_reg, capture_reg, push_this, u
                push_this: push_this,
                use_regs: use_regs,
                link: stk,
-               slots: new Util::Names() },
-               func );
+               slots: new Util::Names() 
+             },
+             func );
 
 function pushBreak({asm, stk, target}, branchTarget)
     new CTX( asm, 

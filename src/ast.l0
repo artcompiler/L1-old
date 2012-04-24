@@ -46,6 +46,12 @@ interface Serializable {
 class ASTNode {
     public function toString()
         (new Serializer(true)).serialize(this);
+
+    function str()
+        "expr"
+
+    function toks()
+        []
 }
 
 // BASIC TYPES
@@ -118,6 +124,7 @@ class Name extends ASTNode implements Serializable {
      
     function serialize(s)
         s.sClass(this, "Name", "ns", "id");
+
 }
 
 // Must be qualified everywhere it's used as 'Ast::Namespace' because
@@ -318,6 +325,7 @@ const strictMask = strictFlag-1;
 class Expr extends ASTNode {
     const pos: int;
     function Expr(pos=0) : pos=pos {}
+
 }
 
 class TernaryExpr extends Expr implements Serializable {
@@ -375,6 +383,9 @@ class ThisExpr extends Expr implements Serializable {
 
     function serialize(s)
         s.sClass(this, "ThisExpr", "strict");
+
+    override function str()
+        "this";
 }
 
 class ThisGeneratorExpr extends Expr implements Serializable {
@@ -419,6 +430,9 @@ class CallExpr extends Expr implements Serializable {
 
     function serialize(s)
         s.sClass(this, "CallExpr", "expr", "args", "spread", "pos", "strict");
+
+    override function str()
+        expr.str();
 }
 
 class ApplyTypeExpr extends Expr implements Serializable {
@@ -479,6 +493,12 @@ class ObjectRef extends Expr implements Serializable {
 
     function serialize(s)
         s.sClass(this, "ObjectRef", "base", "ident", "pos");
+
+    override function str()
+        base.str() + "." + (ident is ComputedName ? "[..]" : ident.ident);
+
+    override function toks()
+        base.toks().concat(ident.toks())
 }
 
 // This is used to encode obj[E] because that whole expression is
@@ -494,6 +514,9 @@ class ComputedName extends Expr implements Serializable {
 
     function serialize(s)
         s.sClass(this, "ComputedName", "expr");
+
+    override function str()
+        "[..]";
 }
 
 // FIXME: le? re?
@@ -509,6 +532,9 @@ class SetExpr extends Expr implements Serializable {
 
     function serialize(s)
         s.sClass(this, "SetExpr", "op", "le", "re");
+
+    override function str()
+        le.str();
 }
 
 class EvalScopeInitExpr extends Expr implements Serializable {
@@ -582,9 +608,11 @@ class RegBind implements Bind {
 class SlotBind implements Bind {
     const slot;   // slot id
     const scope;  // Register the scope is in.  Could scope ever not be in a register?
-    function SlotBind(slot, scope)
+    const scope_name;
+    function SlotBind(slot, scope, scope_name="unknown")
         : slot = slot
-        , scope = scope { }
+        , scope = scope
+        , scope_name = scope_name { }
 }
 
 // FIXME: better as an ENUM, but then that needs to be serializable.
@@ -643,17 +671,26 @@ interface IdentExpr {
 // needs to.
 
 class Identifier extends Expr implements IdentExpr, Serializable {
-    const ident : IDENT;
-    const nss: [...(Ast::Namespace | Expr)];
-    var binding;
-    function Identifier (ident,nss,pos=0)
+    const ident : IDENT
+    const nss: [...(Ast::Namespace | Expr)]
+    var binding
+    var bindingBody
+    var tokens
+    function Identifier (ident,nss,pos=0, tokens=null)
         : ident = ident
         , nss = nss
         , binding = undefined
+        , tokens = tokens
         , super(pos) {}
 
     function serialize(s)
-        s.sClass(this, "Identifier", "ident", "nss");
+        s.sClass(this, "Identifier", "ident", "nss", "tokens");
+
+    override function str()
+        ident
+
+    override function toks()
+        tokens
 }
 
 class QualifiedIdentifier extends Expr implements IdentExpr, Serializable {
@@ -788,26 +825,51 @@ class LiteralNamespace extends Expr implements LiteralExpr, Serializable {
 class LiteralObject extends Expr implements LiteralExpr, Serializable {
     const fields : [...LiteralField];
     const ty : TypeExpr;
-    function LiteralObject (fields, ty, pos=0)
+    const alias;
+    const chrName;
+    const start
+    const end
+    function LiteralObject (fields, ty, pos=0, start=0, end=0)
         : fields = fields
         , ty = ty 
+        , start = start
+        , end = end
         , super(pos) { }
 
     function serialize(s)
-        s.sClass(this, "LiteralObject", "fields", "ty");
+        s.sClass(this, "LiteralObject", "fields", "ty")
+
+    override function str()
+        chrName
+
+    override function toks() {
+        var tt = [ ]
+        for (let i = start; i < end; i++) {
+            tt.push(i)
+        }
+        return tt
+    }
 }
     
 class LiteralField extends ASTNode implements Serializable {
     const kind:  VAR_DEFN_TAG;
     const ident: IdentExpr;
     const expr:  ? Expr;
-    function LiteralField (kind,ident,expr)
+    const tokens;
+    function LiteralField (kind,ident,expr,tokens)
         : kind = kind
         , ident = ident
-        , expr = expr {}
+        , expr = expr
+        , tokens = tokens {}
 
     function serialize(s)
-        s.sClass(this, "LiteralField", "kind", "ident", "expr");
+        s.sClass(this, "LiteralField", "kind", "ident", "expr", "tokens");
+
+    override function str()
+        String(ident != null ? ident.ident : expr.strValue)
+
+    override function toks()
+        tokens
 }
 
 class ProtoField extends ASTNode implements Serializable {
@@ -842,6 +904,10 @@ class LiteralFunction extends Expr implements LiteralExpr, Serializable {
 
     function serialize(s)
         s.sClass(this, "LiteralFunction", "func");
+
+    override function str()
+        func.chrName
+
 }
 
 class LiteralRegExp extends Expr implements LiteralExpr, Serializable {
@@ -1022,6 +1088,7 @@ class FuncAttr extends ASTNode implements Serializable {
 
 class Func extends ASTNode implements Serializable {
     const name; //: FUNC_NAME;
+    const alias;
     const body: [...Stmt];
     const params: Head;
     const numparams: int;
@@ -1034,6 +1101,7 @@ class Func extends ASTNode implements Serializable {
     const filename;
     const start;
     const end;
+    var chrName;
     function Func (name,body,params,numparams,vars,defaults,ty,attr,strict,pos=0,filename=null,start=0,end=0)
         : name = name
         , body = body
@@ -1051,6 +1119,14 @@ class Func extends ASTNode implements Serializable {
 
     function serialize(s)
         s.sClass(this, "Func", "name", "body", "params", "numparams", "vars", "defaults", "ty", "attr", "strict", "pos", "filename");
+
+    override function toks() {
+        var tt = [ ]
+        for (let i = start; i < end; i++) {
+            tt.push(i)
+        }
+        return tt
+    }
 }
 
 class Ctor extends ASTNode implements Serializable {
@@ -1783,7 +1859,10 @@ class Serializer {
         if (obj is String)
             return "'" + sanitize(obj) + "'";
 
-        //throw new Error("Unserializable datum " + obj);
+        if (obj is Token::Tok)
+            return "'" + obj + "'";
+
+        throw new Error("Unserializable datum " + obj.constructor);
         return "[[" + obj + "]]";
     }
 

@@ -47,12 +47,26 @@ internal function compile(consume, produce, context, start_line) {
     let parser = new Parse::Parser(input, getTopFixtures(), context, start_line);
     let prog = parser.program();
 
-    //for (var t in Parse::tokenStream) {
-    //    print(t, Token::tokenStore[Parse::tokenStream[t]]);
-    //}
+    let str = "";
+    for (var i = 0; i < Parse::lineBreaksByToken.length; i++) {
+        str += parser.scan.lineBreaksByChar[i] + " ";
+        str += Parse::lineBreaksByToken[i] + "\n";
+    }
+    print(str);
+    Util::writeStringToFile(str,context+".lines");
 
-    //let ast_str = (new Ast::Serializer()).serialize(prog);
-    //print (ast_str);
+    let str = ""
+    for (var t in Parse::tokenStream) {
+        let token = Token::tokenStore[Parse::tokenStream[t].tid];
+        str += Parse::tokenStream[t].start + " " + Parse::tokenStream[t].end + "\n"
+    }
+
+    print(str);
+    Util::writeStringToFile(str,context+".tokens");
+
+    let ast_str = (new Ast::Serializer()).serialize(prog);
+    print (ast_str);
+    Util::writeStringToFile(ast_str,context+".ast");
 
 
     let t2 = new Date;

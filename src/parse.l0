@@ -130,7 +130,8 @@ function warning(ctx, msg) {
     Util::warning(filename, position, msg);
 }
 
-const tokenStream = [ ];
+const tokenStream = [ ]
+const lineBreaksByToken = [ ]
 
 final class Parser
 {
@@ -198,17 +199,28 @@ final class Parser
     var T0=Token::NONE, T1=Token::NONE, LP=0, L0=0, L1=0;
     const tokenStore = Token::tokenStore;
 
+    function pushToken(tk) {
+        if (newline()) {
+            LP = LP ? LP : 1
+            var n = L0 - LP   // the number of newlines since last token
+            for (var i = 0; i < n; i++) {
+                lineBreaksByToken.push(tokenStream.length)
+            }
+        }
+        tokenStream.push({tid:tk, start:scan.currentPos()+1-tokenStore[tk].size(), end:scan.currentPos()+1})
+    }
+
     function start() {
         T0 = scan.start();
         L0 = scan.lnCoord;
-        tokenStream.push(T0);
+        pushToken(T0);
     }
 
     function div() {
         Util::assert( T0 === Token::BREAK_SLASH && T1 === Token::NONE );
         T0 = scan.div();
         L0 = scan.lnCoord;
-        tokenStream.push(T0);
+        pushToken(T0);
         return hd();
     }
 
@@ -216,7 +228,7 @@ final class Parser
         Util::assert( T0 === Token::BREAK_SLASH && T1 === Token::NONE );
         T0 = scan.regexp();
         L0 = scan.lnCoord;
-        tokenStream.push(T0);
+        pushToken(T0);
         return hd();
     }
 
@@ -224,7 +236,7 @@ final class Parser
         Util::assert( T0 === Token::BREAK_RBROCKET && T1 === Token::NONE );
         T0 = scan.brocket();
         L0 = scan.lnCoord;
-        tokenStream.push(T0);
+        pushToken(T0);
         return hd();
     }
 
@@ -232,7 +244,7 @@ final class Parser
         Util::assert( T0 === Token::BREAK_RBROCKET && T1 === Token::NONE );
         T0 = scan.shiftOrRelational();
         L0 = scan.lnCoord;
-        tokenStream.push(T0);
+        pushToken(T0);
         return hd();
     }
 
@@ -272,7 +284,7 @@ final class Parser
             T0 = scan.start();
             L0 = scan.lnCoord;
         }
-        tokenStream.push(T0);
+        pushToken(T0);
     }
 
     function replace (t) {
@@ -315,7 +327,7 @@ final class Parser
 
     function makeIdentifier(id : Token::Tok, nss, pos=0) : Ast::Identifier {
         Util::assert( id is Token::Tok );
-        let ident = new Ast::Identifier(id, nss, pos);
+        let ident = new Ast::Identifier(id, nss, pos, [tokenStream.length]);
         if (id === Token::sym_arguments) 
             cx.topFunction().uses_arguments = true;
         else if (id === Token::sym_eval)
@@ -591,9 +603,11 @@ final class Parser
     function objectInitializer () : Ast::TypeExpr {
         let [var_prefix, const_prefix] = initializerAttribute();
         let pos = position();             // Record source location of initial left brace
+        let start = tokenStream.length-1
         eat (Token::LeftBrace);
         let fields = fieldList (var_prefix, const_prefix);
         eat (Token::RightBrace);
+        let end = tokenStream.length
 
         // FIXME -- implement.
         //
@@ -617,7 +631,7 @@ final class Parser
 
         let texpr = alpha==allowColon && match(Token::Colon) ? typeExpression () : Ast::anyType;
 
-        return new Ast::LiteralObject (fields, texpr, pos);
+        return new Ast::LiteralObject (fields, texpr, pos, start, end);
     }
 
     function fieldList (var_prefix, const_prefix) : [(Ast::LiteralField | Ast::ProtoField | Ast::VirtualField)] {
@@ -680,7 +694,7 @@ final class Parser
 
         let expr = match(Token::Colon) ? fullAssignmentExpression () : null;
 
-        return new Ast::LiteralField (tag, fn, expr);
+        return new Ast::LiteralField (tag, fn, expr, fn.toks());
     }
 
     function getterOrSetterFieldMaybe(tag, kind) {
@@ -698,21 +712,21 @@ final class Parser
         case Token::StringLiteral:
             if (hd2() == Token::DoubleColon)
                 break;
-            return let (name = new Ast::Identifier(lexeme(), Ast::publicNSSL)) next(), name;
+            return let (name = new Ast::Identifier(lexeme(), Ast::publicNSSL, 0, [tokenStream.length])) next(), name;
 
         case Token::IntLiteral:
         case Token::UIntLiteral:
-            return let (name = new Ast::Identifier(Token::intern(parseInt(lexeme().text)), Ast::publicNSSL)) next(), name;
+            return let (name = new Ast::Identifier(Token::intern(parseInt(lexeme().text)), Ast::publicNSSL, 0, [tokenStream.length])) next(), name;
 
         case Token::DoubleLiteral:
-            return let (name = new Ast::Identifier(Token::intern(parseFloat(lexeme().text)), Ast::publicNSSL)) next(), name;
+            return let (name = new Ast::Identifier(Token::intern(parseFloat(lexeme().text)), Ast::publicNSSL, 0, [tokenStream.length])) next(), name;
 
         case Token::DecimalLiteral:
-            return let (name = new Ast::Identifier(Token::intern(new decimal(lexeme().text)), Ast::publicNSSL)) next(), name;
+            return let (name = new Ast::Identifier(Token::intern(new decimal(lexeme().text)), Ast::publicNSSL, 0, [tokenStream.length])) next(), name;
 
         default:
             if (Token::isReserved(hd ()))
-                return let (name = new Ast::Identifier(lexeme(), Ast::publicNSSL)) next(), name;
+                return let (name = new Ast::Identifier(lexeme(), Ast::publicNSSL, 0, [tokenStream.length])) next(), name;
             break;
         }
         return nameExpression();
@@ -2207,7 +2221,7 @@ final class Parser
         let signature;
         let pos = position();
 
-        let start = tokenStream.length;
+        let start = tokenStream.length-1;
         
         cx.enterFunction(makeAttrs());
 

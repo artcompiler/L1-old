@@ -1,4 +1,5 @@
-/* -*- mode: javascript; tab-width: 4; insert-tabs-mode: nil; -*- */
+/* -*- Mode: javascript; c-basic-offset: 4; indent-tabs-mode: nil; tab-width: 4 -*- */
+/* vi: set ts=4 sw=4 expandtab: (add to ~/.vimrc: set modeline modelines=5) */
 /* ***** BEGIN LICENSE BLOCK *****
  * Version: MPL 1.1/GPL 2.0/LGPL 2.1
  *
@@ -83,6 +84,9 @@ final class Scanner
     Lex function internalError(msg) {
         Util::internalError(filename, lnCoord, msg);
     }
+
+    public function currentPos()
+        curIndex
 
     public function Scanner (src:String, filename:String, keyword_or_ident:Boolean = false)
         : src = src
@@ -218,6 +222,13 @@ final class Scanner
     function lexeme()
         src.slice (markIndex,curIndex);
 
+    public const lineBreaksByChar = [ ]
+
+    function newLine() {
+        lnCoord++
+        lineBreaksByChar.push(curIndex+1)
+    }
+
     /* Get the next token.
 
     Never returns Token::Eol.
@@ -260,13 +271,13 @@ final class Scanner
                 Lex::syntaxError("Illegal character in input: NUL");
 
             case  10 /* Char::Newline */:
-                lnCoord++;
+                newLine();
                 continue;
 
             case  13 /* Char::CarriageReturn */: 
                 if (src.charCodeAt(curIndex) == 10 /* Char::Newline */)
                     curIndex++;
-                lnCoord++;
+                newLine();
                 continue;
 
             case  32 /* Char::Space */: 
@@ -1071,7 +1082,7 @@ final class Scanner
                         continue;
                     case 0x2028: /* Char::LS */
                     case 0x2029: /* Char::PS */
-                        lnCoord++;
+                        newLine();
                         continue;
                     }
                 }
@@ -1389,7 +1400,7 @@ final class Scanner
                 c = 10;
             }
             Util::assert(c == 10 /* Char::Newline */ || c == 0x2028 /* Char::LS */ || c == 0x2029 /* Char::PS */);
-            lnCoord++;
+            newLine();
         }
     }
 
@@ -1509,14 +1520,14 @@ final class Scanner
                     cachedIndex++;
                     if (cachedSrc.charCodeAt(cachedIndex) === 10 /* Char::Newline */)
                         cachedIndex++;
-                    lnCoord++;
+                    newLine();
                     continue;
 
                 case 0x2028: /* Char::LS */
                 case 0x2029: /* Char::PS */
                 case 10 /* Char::Newline */:
                     cachedIndex++;
-                    lnCoord++;
+                    newLine();
                     continue;
 
                 default:

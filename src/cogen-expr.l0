@@ -384,7 +384,7 @@ function cgUnaryExpr(ctx, e) {
 function cgThisExpr(ctx, e) {
     var {asm, kemitter:ke} = ctx;
     asm.I_getlocal(0);
-    ke.addRef(ctx, "this", 0);
+    //ke.addRef(ctx, "this", 0);
 }
 
 function cgYieldExpr(ctx, e) {
@@ -393,7 +393,7 @@ function cgYieldExpr(ctx, e) {
 }
 
 function cgCallExpr(ctx, e) {
-    let {asm, emitter} = ctx;
+    let {asm, emitter, kemitter:ke} = ctx;
     let nargs = e.args.length;
     let evalTmp = 0;
     let isEval = false;
@@ -410,12 +410,18 @@ function cgCallExpr(ctx, e) {
             asm.I_getlocal(0);
             isSuperCall = true;
         }
-        else
+        else {
             cgExpr(ctx, or.base);
-
-        var {kemitter: ke} = ctx;
-        //print("cgCall() e.expr.ident="+e.expr.ident.ident);
-        ke.addRef(ctx, e.expr.ident.ident, ke.lastRef());
+            if (or.ident is Ast::ComputedName) {
+                ident = "[..]"
+            }
+            else {
+                ident = or.ident.ident
+            }
+            //print("cgCallExpr() str="+or.base.str()+" base="+or.base.toks())
+            var tokens = or.base.toks().concat(or.ident.toks())
+            ke.addRef(ctx, or.base.str()+"."+ident+"()", "program", tokens);  // treat as unresolved for now
+        }
     }
     case (lr: IdentExpr) {
         var bind = getIdentBinding(ctx, lr);
@@ -426,16 +432,13 @@ function cgCallExpr(ctx, e) {
         else {
             cgFindPropStrict(ctx, lr);
         }
+
         if (lr is Identifier && lr.ident == Token::sym_eval) {
             isEval = true;
             evalTmp = asm.getTemp();   // save the
             asm.I_dup();               //   object
             asm.I_setlocal(evalTmp);   //     for later
         }
-
-        var {kemitter: ke} = ctx;
-        //print("cgCall() e.expr.ident="+e.expr.ident);
-        ke.addRef(ctx, e.expr.ident, 0);
     }
     case (x:*) {
         cgExpr(ctx, e.expr);
@@ -448,8 +451,9 @@ function cgCallExpr(ctx, e) {
         name = cgIdentExpr(ctx, e.expr.ident);
     }
 
-    for ( let i=0 ; i < nargs ; i++ )
+    for ( let i=0 ; i < nargs ; i++ ) {
         cgExpr(ctx, e.args[i]);
+    }
 
     let L_skipcall;
 
@@ -718,9 +722,11 @@ function cgNewExpr(ctx, {expr, args, spread}) {
 
 function cgObjectRef(ctx, {base, ident}) {
     let {asm, kemitter:ke} = ctx;
-    cgExpr(ctx, base);
+    //cgExpr(ctx, base);
     asm.I_getproperty(cgIdentExpr(ctx, ident));
-    ke.addRef(ctx, ident.ident, ke.lastRef());
+    if (!(ident is Ast::ComputedName)) {
+        ke.addRef(ctx, base.str()+"."+ident.ident, "program");  // treat as unresolved for now
+    }
 }
 
 // Not to be confused with the subroutine cgIdentExpr below.  That one
@@ -731,22 +737,29 @@ function cgIdentExprNode(ctx, ident) {
     cgFindPropStrict(ctx, ident);
     cgGetProp(ctx, ident);
 
+    /*
     try {
         var fx = env.resolveIdentExpr(ident, Ast::varInit);
     }
     catch (x) {
         //print(x)
-        ke.addUnresolvedRef(ident.ident);
+        ke.addUnresolvedRef(ident.str());
     }
-
-    ke.addRef(ctx, ident.ident, 0);
+    */
+    //ke.addRef(ctx, ident.str(), 0);
 }
 
 function cgSetExpr(ctx, e) {
     var {kemitter: ke} = ctx;
     switch type (e.le) {
-    case (objref: Ast::ObjectRef) { cgSetObjectRefExpr(ctx, e); ke.addRef(ctx, e.le.ident.ident, ke.lastRef()) }
-    case (ident: Ast::IdentExpr)  { cgSetIdentExpr(ctx, e); ke.addRef(ctx, e.le.ident.ident, 0) }
+    case (objref: Ast::ObjectRef) { 
+        cgSetObjectRefExpr(ctx, e); 
+        //if (!(e.le.ident is Ast::ComputedName)) {
+            //ke.addRef(ctx, e.le.str()+"=", ke.lastRef()) 
+        //}
+
+    }
+    case (ident: Ast::IdentExpr)  { cgSetIdentExpr(ctx, e); /*ke.addRef(ctx, e.le.ident+"=", 0)*/ }
     case (x: *)                   { Gen::syntaxError(ctx, "Illegal lvalue " + x) }
     }
 
@@ -760,6 +773,20 @@ function cgSetIdentExpr(ctx, {op, le, re}) {
     if (opr == assignOp) {
         cgFindProp(ctx, le);
         cgExpr(ctx, re);
+
+
+        var str = le.str()
+        
+        // Push name into function or object, if expr is one of those
+        if (re instanceof Ast::LiteralFunction) {
+            print("cgSetIdentExpr() Func str="+str);
+            re.func.alias = str
+        }
+        else
+            if (re instanceof Ast::LiteralObject) {
+                //print("cgObjectInitializer() Object name="+lf.ident.ident);
+                re.alias = str
+            }
     }
     else {
         if (cgFindPropStrict(ctx, le))
@@ -787,10 +814,27 @@ function cgSetObjectRefExpr(ctx, {op, le, re}) {
 
     if (opr == assignOp) {
         let name = cgIdentExpr(ctx, le.ident);   // order matters if it's a ComputedName
-        cgExpr(ctx, re);
+        // moved down to evaluate left to right
+        //cgExpr(ctx, re);
         asm.I_dup();
         asm.I_setlocal(t);
         asm.I_setproperty(name);
+
+        var str = le.str()
+        
+        // Push name into function or object, if expr is one of those
+        if (re instanceof Ast::LiteralFunction) {
+            print("cgSetObjectRef() Func str="+str);
+            re.func.alias = str
+        }
+        else
+            if (re instanceof Ast::LiteralObject) {
+                print("cgSetObjectRef() Object name="+str);
+                re.alias = str
+            }
+
+        cgExpr(ctx, re);
+
     }
     else {
         let subtmp = null;     // stores indexing expression value
@@ -917,12 +961,26 @@ function cgLiteralExpr(ctx, e) {
         }
     }
 
-    function cgObjectInitializer(ctx, {fields:fields}) {
-        let {asm, emitter} = ctx;
+    function cgObjectInitializer(ctx, obj) {
+        let {asm, emitter, kemitter: ke} = ctx;
+        let {alias, fields} = obj;
+        //print("cgObjectInitializer() alias="+alias);
         asm.I_findpropstrict(ctx.emitter.Object_name);
         asm.I_constructprop(ctx.emitter.Object_name, 0);
         let t = asm.getTemp();
         asm.I_setlocal(t);
+
+        var str_name = ctx.filename;
+        var sub_name = str_name.substring(str_name.lastIndexOf("/")+1);
+//        sub_name = sub_name.substring(0, sub_name.lastIndexOf(".")) + sub_name.substring(sub_name.lastIndexOf(".")+1);
+        var chr_name = sub_name+"_obj_"+obj_count++;
+
+        if (alias == null) {
+            alias = chr_name
+        }
+
+        ke.enterClosure(chr_name, String(alias));
+        
         for ( let i=0, limit=fields.length ; i < limit ; i++ ) {
             switch type (fields[i]) {
             case (lf: Ast::LiteralField) {
@@ -934,10 +992,30 @@ function cgLiteralExpr(ctx, e) {
                 if (lf.expr == null) 
                     Gen::syntaxError(ctx, "Missing field value in object initializer: " + lf.ident);
 
+                var str = lf.str()
+
+                // Push name into function or object, if expr is one of those
+                if (lf.expr instanceof Ast::LiteralFunction) {
+                    //print("cgObjectInitializer() Func name="+lf.ident.ident);
+                    lf.expr.func.alias = str
+                }
+                else
+                if (lf.expr instanceof Ast::LiteralObject) {
+                    //print("cgObjectInitializer() Object name="+lf.ident.ident);
+                    lf.expr.alias = str
+                }
+
                 asm.I_getlocal(t);
                 cgExpr(ctx, lf.expr);
                 asm.I_setproperty(cgIdentExpr(ctx, lf.ident));
-
+                if (lf.expr is Ast::IdentExpr) {
+                    var val = String(lf.expr.bindingBody);
+                }
+                else {
+                    var val = lf.expr != null ? String(lf.expr.str()) : "null"
+                }
+                //print("cgObject() lf.ident.tokens="+lf.ident.toks());
+                ke.addDef(ctx, str, val, false, lf.ident.toks());
             }
             case (vf: Ast::VirtualField) {
                 Gen::internalError(ctx, "VirtualField support missing.");
@@ -947,15 +1025,13 @@ function cgLiteralExpr(ctx, e) {
             }
             }
         }
+        ke.currentClosure().tokens = obj.toks()
+        ke.exitClosure();
+        obj.chrName = chr_name;
         //asm.I_newobject(fields.length);
         asm.I_getlocal(t);
         asm.killTemp(t);
 
-        var str_name = ctx.filename;
-        var sub_name = str_name.substring(str_name.lastIndexOf("/")+1);
-//        sub_name = sub_name.substring(0, sub_name.lastIndexOf(".")) + sub_name.substring(sub_name.lastIndexOf(".")+1);
-        var chr_name = sub_name+"_obj_"+obj_count++;
-        ctx.kemitter.log("chr - " + chr_name + " " + chr_name + " 0 " + (fields.length+1) + " " +  "grey" /*"spectral-5-div-"+(asm.length%5+1)*/);
 
     }
 
@@ -1002,7 +1078,7 @@ function cgLiteralExpr(ctx, e) {
     }
     case (e:LiteralString) {
         asm.I_pushstring(ctx.cp.symbolUtf8(e.strValue));
-        ke.addRef(ctx, "\""+e.strValue+"\"", 0);
+        //ke.addRef(ctx, "\""+e.strValue+"\"", 0);
     }
     case (e:LiteralBoolean) {
         if (e.booleanValue)
@@ -1011,6 +1087,7 @@ function cgLiteralExpr(ctx, e) {
             asm.I_pushfalse();
     }
     case (e:LiteralFunction) { 
+        //print("cgLiteral() name=" + e.func.name);
         if (e.func.name != null) {
             // FIXME: correct for ES3 but not for ES4
             let t = asm.getTemp();
@@ -1112,18 +1189,29 @@ function cgFindPropStrict(ctx, id:IdentExpr)
 
 // Returns true if the result of the findprop is left on the stack
 function cgFindProp(ctx, id:IdentExpr, is_strict = false) {
-    let asm = ctx.asm;
+    let {asm, kemitter:ke} = ctx;
 
     switch type ( getIdentBinding(ctx, id) ) {
     case ( rb : RegBind ) {
+        var name = ctx.kemitter.currentClosure().name
         // Do nothing, we'll get/set the value later with a register
+        //print("cgFindProp() id="+id.str()+" binding="+rb+" name="+name)
+        ke.addRef(ctx, id.str(), name, id.toks());
+        id.bindingBody = name;
         return false;
     }
     case ( sb : SlotBind ) {
         // Load the scope the slot is in
+        //print("cgFindProp() id="+id.str()+" binding="+sb+" sb.scope_name="+sb.scope_name)
         asm.I_getlocal(sb.scope);
+        ke.addRef(ctx, id.str(), sb.scope_name, id.toks);
+        id.bindingBody = name;
     }
     case ( e : * ) {
+        //print("cgFindProp() id="+id.str()+" binding="+"none")
+        ke.addDef(ctx, id.str(), "null", true, [])
+        ke.addRef(ctx, id.str(), "program", id.toks());
+
         if( is_strict )
             asm.I_findpropstrict(cgIdentExpr(ctx, id));
         else

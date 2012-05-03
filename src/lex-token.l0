@@ -58,7 +58,7 @@ final class Tok /*implements Serializable*/
     const hash: double;
     const text: String;
 
-    function Tok(kind,text,hash) : kind=kind, text=text, hash=hash {}
+    function Tok(kind,text,hash) : kind=kind, text=text, hash=hash { }
 
     // A toString call on this is almost certainly an error that we
     // want to catch very quickly; use serialize() instead.  (May lift

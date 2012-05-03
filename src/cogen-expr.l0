@@ -75,6 +75,7 @@ use namespace Abc,
 internal var lastline = -1;
 
 function cgExpr(ctx, e) {
+    let {kemitter: ke} = ctx
     if (emit_debug && e.pos > 0 && e.pos != lastline) {
         ctx.asm.I_debugline(e.pos);
         lastline = e.pos;
@@ -108,6 +109,7 @@ function cgExpr(ctx, e) {
         Gen::internalError(ctx, "Unimplemented expression type " + e);
     }
     }
+    ke.addExpr(e.intern(ctx.pool), e.toks())
 }
 
 function cgTernaryExpr(ctx, { e1: test, e2: consequent, e3: alternate }) {
@@ -420,7 +422,8 @@ function cgCallExpr(ctx, e) {
             }
             //print("cgCallExpr() str="+or.base.str()+" base="+or.base.toks())
             var tokens = or.base.toks().concat(or.ident.toks())
-            ke.addRef(ctx, or.base.str()+"."+ident+"()", "program", tokens);  // treat as unresolved for now
+            //ke.addRef(ctx, or.base.str()+"."+ident+"()", "program", tokens);  // treat as unresolved for now
+            ke.addRef(ctx, or.intern(ctx.pool), "program", tokens);  // treat as unresolved for now
         }
     }
     case (lr: IdentExpr) {
@@ -725,7 +728,8 @@ function cgObjectRef(ctx, {base, ident}) {
     //cgExpr(ctx, base);
     asm.I_getproperty(cgIdentExpr(ctx, ident));
     if (!(ident is Ast::ComputedName)) {
-        ke.addRef(ctx, base.str()+"."+ident.ident, "program");  // treat as unresolved for now
+        var tokens = base.toks().concat(ident.toks())
+        ke.addRef(ctx, base.str()+"."+ident.ident, "program", tokens);  // treat as unresolved for now
     }
 }
 
@@ -979,7 +983,7 @@ function cgLiteralExpr(ctx, e) {
             alias = chr_name
         }
 
-        ke.enterClosure(chr_name, String(alias));
+        ke.enterTable(chr_name, String(alias));
         
         for ( let i=0, limit=fields.length ; i < limit ; i++ ) {
             switch type (fields[i]) {
@@ -1015,18 +1019,18 @@ function cgLiteralExpr(ctx, e) {
                     var val = lf.expr != null ? String(lf.expr.str()) : "null"
                 }
                 //print("cgObject() lf.ident.tokens="+lf.ident.toks());
-                ke.addDef(ctx, str, val, false, lf.ident.toks());
+                ke.addSlot(ctx, str, val, false, lf.ident.toks());
             }
             case (vf: Ast::VirtualField) {
-                Gen::internalError(ctx, "VirtualField support missing.");
+                //Gen::internalError(ctx, "VirtualField support missing.");
             }
             case (pf: Ast::ProtoField) {
                 Gen::internalError(ctx, "ProtoField support missing.");
             }
             }
         }
-        ke.currentClosure().tokens = obj.toks()
-        ke.exitClosure();
+        ke.currentTable().tokens = obj.toks()
+        ke.exitTable();
         obj.chrName = chr_name;
         //asm.I_newobject(fields.length);
         asm.I_getlocal(t);
@@ -1147,13 +1151,13 @@ function cgIdentExpr(ctx, e) {
         case( lr: Identifier ) {
             // Hack to deal with namespaces for now...
             // later we will have to implement a namespace lookup to resolve qualified typenames
-            return emitter.qname(new Ast::Name(new Ast::UnforgeableNamespace(lr.ident), qi.ident), false);
+            return emitter.qname(new Ast::Name(new Ast::UnforgeableNamespace(lr.ident), qi.ident, qi.toks()), false);
         }
         case (lr: ForgeableNamespace) {
-            return emitter.qname(new Ast::Name(lr, qi.ident), false);
+            return emitter.qname(new Ast::Name(lr, qi.ident, qi.toks()), false);
         }
         case (lr: UnforgeableNamespace) {
-            return emitter.qname(new Ast::Name(lr, qi.ident), false);
+            return emitter.qname(new Ast::Name(lr, qi.ident, qi.toks()), false);
         }
         case( e:* ) {
             /// cgExpr(ctx, qi.qual);
@@ -1209,7 +1213,7 @@ function cgFindProp(ctx, id:IdentExpr, is_strict = false) {
     }
     case ( e : * ) {
         //print("cgFindProp() id="+id.str()+" binding="+"none")
-        ke.addDef(ctx, id.str(), "null", true, [])
+        ke.addSlot(ctx, id.str(), "null", true, [1])
         ke.addRef(ctx, id.str(), "program", id.toks());
 
         if( is_strict )

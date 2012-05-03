@@ -14,4 +14,15 @@
 	  baz: "baz"
 	}
    }
-);
+)
+
+function f(n) {
+    x = a + b
+    y = x
+    if (y) {
+	x = c + d
+    }
+    return x + y
+}
+
+f(10)

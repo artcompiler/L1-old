@@ -63,6 +63,41 @@ use namespace Abc,
     namespace Emit,
     namespace Util;
 
+
+/*
+ * EXPR POOL
+ */
+
+class ExprPool {
+    var map = { }
+    var exprs = [ ]
+    function intern(e) {
+        let key = e.join("#")
+        let nid
+        if (key in map) {
+            nid = map[key]
+        }
+        else {
+            nid = exprs.length
+            map[key] = nid
+            exprs.push(e)
+        }
+        print(key+"-->"+nid)
+        return nid
+    }
+
+    function dump() {
+        let str = ""
+        for (let i = 0; i < exprs.length; i++) {
+            str += "\n" + i + ": " + exprs[i]
+        }
+        return str
+    }
+
+}
+
+
+
 /* A context is a structure with the following fields.
  *
  * In the object:
@@ -124,6 +159,7 @@ function cg(tree: PROGRAM) {
     let ke = new KaryotypeEmitter();
     let env = new Parse::Definer(null, []);
     env.pushNamespace(Ast::publicNS);
+    let epool = new ExprPool;
 
     CTX.prototype.emitter = e;
     CTX.prototype.script = s;
@@ -132,7 +168,7 @@ function cg(tree: PROGRAM) {
     CTX.prototype.scope_reg = 0;
     CTX.prototype.kemitter = ke;
     CTX.prototype.env = env;
-
+    CTX.prototype.pool = epool
 
 
     let asm = s.init.asm;
@@ -153,6 +189,8 @@ function cg(tree: PROGRAM) {
     let chr_name = tree.file + "_catchall";
     ke.chr_name = chr_name = chr_name.substring(chr_name.lastIndexOf('/')+1);
     ke.log("chr - " + chr_name + " " + chr_name + " 0 " + ke.unrefCount() + " " +  "red");
+    //print("ExprPool")
+    //print(epool.dump())
     return [e.finalize(), ke.finalize(tree.file)];
 }
 
@@ -193,7 +231,7 @@ function cgEval(tree: PROGRAM, name: Token::Tok, scopedesc: String) {
 
     tree.head.fixtures.push
         ( new Ast::Fixture
-          ( new Ast::PropName(new Ast::Name(Ast::publicNS, name)),
+          ( new Ast::PropName(new Ast::Name(Ast::publicNS, name, [])),
             new Ast::MethodFixture
             ( new Ast::Func
               ( new Ast::FuncName(Ast::ordinaryFunction, name),
@@ -233,12 +271,14 @@ function cgProgram(ctx, prog) {
     cgDebugFile(ctx);
     var {kemitter: ke} = ctx;
     ke.enterModule();
+    ke.enterTable("global", "global");
     ke.enterClosure("program", "program");
     if (prog.head.fixtures != null)
         cgFixtures(ctx, prog.head.fixtures);
     cgStmts(ctx, prog.body);
     ke.exitClosure();
-    ke.exitModule();
+    ke.exitTable();
+    ke.exitModule(ctx.pool);
 }
 
 function cgGetFixtureNameParts(ctx, fxname) {
@@ -341,8 +381,8 @@ function cgFixtures(ctx, fixtures) {
             else if (fx is NamespaceFixture) {
                 checkTrait(fxname, name, TRAIT_Slot, true);
                 slot_id = target.addTrait(new ABCSlotTrait(name, 0, true, 0, 
-                                                 emitter.qname(new Ast::Name(Ast::publicNS, Token::sym_Namespace),false), 
-                                                 emitter.namespace(fx.ns), CONSTANT_Namespace));
+                                    emitter.qname(new Ast::Name(Ast::publicNS, Token::sym_Namespace, []),false), 
+                                              emitter.namespace(fx.ns), CONSTANT_Namespace));
             }
             else if (fx is TypeFixture) {
                 //print ("warning: ignoring type fixture");
@@ -685,7 +725,7 @@ function cgFunc(ctx0, f:Func) {
             switch type (fx.name) {
             case (n: PropName) {
                 id = n.name.id;
-                ke.addDef(ctx0, id, "", false, [ ]);
+                ke.addSlot(ctx0, id, "", false, n.name.toks());
             }
             case (n: *) {
                 id = "unknown"
@@ -701,13 +741,13 @@ function cgFunc(ctx0, f:Func) {
             }
             case (n: PropName) {
                 id = n.name.id;
+                ke.addSlot(ctx0, id, "", false, n.name.toks());
             }
             case (n: *) {
                 id = "unknown"
             }
             }
             //print("cgFunc() fx.name="+id);
-            ke.addDef(ctx0, id, "", false, []);
         }
 
         cgStmts(fnctx, f.body);
@@ -810,7 +850,7 @@ function setupArguments(ctx, f) {
         //
         // Then initialize it.  It must be done first according to E262-3.
 
-        cgFixtures(ctx, [new Ast::Fixture(new PropName(new Ast::Name(Ast::publicNS, Token::sym_arguments)), 
+        cgFixtures(ctx, [new Ast::Fixture(new PropName(new Ast::Name(Ast::publicNS, Token::sym_arguments, [])), 
                                           new ValFixture(Ast::anyType, false))]);
         cgExpr(ctx, new Ast::SetExpr(Ast::assignOp, 
                                      new Ast::Identifier(Token::sym_arguments, Ast::publicNSSL), 

@@ -41,6 +41,7 @@ use default namespace Parse,
     namespace Parse;
 
 class Pattern {
+    const tokens
 }
 
 class FieldPattern extends Pattern {
@@ -73,8 +74,10 @@ class SimplePattern extends Pattern {
 
 class IdentifierPattern extends Pattern {
     const ident : Ast::IDENT;
-    function IdentifierPattern (ident)
-        : ident = ident { }
+    const tokens
+    function IdentifierPattern (ident, tokens)
+        : ident = ident
+        , tokens = tokens { }
 }
 
 class ALPHA extends Util::ENUM { function ALPHA(s) : super(s) {} }
@@ -327,7 +330,7 @@ final class Parser
 
     function makeIdentifier(id : Token::Tok, nss, pos=0) : Ast::Identifier {
         Util::assert( id is Token::Tok );
-        let ident = new Ast::Identifier(id, nss, pos, [tokenStream.length]);
+        let ident = new Ast::Identifier(id, nss, pos, [tokenStream.length-1]);
         if (id === Token::sym_arguments) 
             cx.topFunction().uses_arguments = true;
         else if (id === Token::sym_eval)
@@ -466,7 +469,7 @@ final class Parser
             let fxtrs, exprs, expr;
             switch type (p) {
             case (p:IdentifierPattern) {
-                let nm = new Ast::PropName (new Ast::Name(ns, p.ident));
+                let nm = new Ast::PropName (new Ast::Name(ns, p.ident, p.tokens));
                 let fx = new Ast::ValFixture (t, ro);
                 fxtrs = [new Ast::Fixture(nm, fx)];
                 let inits = (e !== null) ? ([new Ast::InitBinding(nm, e)]) : []; // FIXME (fix what??)
@@ -1502,7 +1505,7 @@ final class Parser
 
     function simplePattern () : Pattern {
         switch (gamma) {
-        case noExpr:    return new IdentifierPattern (identifier ());
+        case noExpr:    return new IdentifierPattern (identifier (), [tokenStream.length-1]);
         case allowExpr: return new SimplePattern (leftHandSideExpression ());
         }
     }
@@ -1539,7 +1542,7 @@ final class Parser
             field_pattern = dynamic override (alpha=allowColon, beta=allowIn) pattern ();
         else {
             if (field_name is Ast::Identifier)
-                field_pattern = new IdentifierPattern (field_name.ident);
+                field_pattern = new IdentifierPattern (field_name.ident, [tokenStream.length-1]);
             else {
                 // Could be qualified?
                 Parse::internalError(this, "unsupported fieldPattern " + field_name);
@@ -2191,6 +2194,7 @@ final class Parser
         // setters.  That would be a (much) better fit with interfaces
         // as essentially type definitions.
 
+        let tokens = [tokenStream.length]
         let name = functionName (tau == globalBlk || tau == classBlk || tau == interfaceBlk);
         let signature = functionSignature (name.kind);
         let body, strict;
@@ -2211,7 +2215,7 @@ final class Parser
         if (strict)
             checkStrictFunction(func);
 
-        let name = new Ast::PropName (new Ast::Name(attrs.ns, name.ident));
+        let name = new Ast::PropName (new Ast::Name(attrs.ns, name.ident, tokens));
         let fxtr = new Ast::MethodFixture (func, Ast::anyType, true, attrs.override, attrs.final);
         cx.addFixture(tau == localBlk ? Ast::letInit : Ast::varInit, name, fxtr, attrs.static);
     }
@@ -2643,7 +2647,7 @@ final class Parser
         eat (Token::Class);
 
         let classid = identifier ();
-        let cname = new Ast::Name(attrs.ns, classid);
+        let cname = new Ast::Name(attrs.ns, classid, [tokenStream.length-1]);
         let [typeformals, nonnullable] = typeSignature ();
         let superclass = extendsClause();
         let superinterfaces = interfaceList(Token::id_implements);
@@ -2659,11 +2663,11 @@ final class Parser
             cx.pushNamespace(protectedNs);
             cx.pushNamespace(privateNs);
             cx.addFixture(Ast::varInit,
-                          new Ast::PropName(new Ast::Name(privateNs, Token::sym_private)),
+                          new Ast::PropName(new Ast::Name(privateNs, Token::sym_private, [])),
                           new Ast::NamespaceFixture(privateNs),
                           true);
             cx.addFixture(Ast::varInit,
-                          new Ast::PropName(new Ast::Name(privateNs, Token::sym_protected)),
+                          new Ast::PropName(new Ast::Name(privateNs, Token::sym_protected, [])),
                           new Ast::NamespaceFixture(protectedNs),
                           true);
 
@@ -2711,7 +2715,7 @@ final class Parser
         eat (Token::Interface);
             
         let interfaceid = identifier ();
-        let iname = new Ast::Name(attrs.ns, interfaceid);
+        let iname = new Ast::Name(attrs.ns, interfaceid, [tokenStream.length-1]);
         let [typeformals, nonnullable] = typeSignature ();
         let superinterfaces = interfaceList(Token::id_extends);
         let fx;
@@ -2812,7 +2816,7 @@ final class Parser
         else 
             nsVal = new Ast::ForgeableNamespace (initializer);
 
-        let fxname = new Ast::PropName (new Ast::Name(attrs.ns, name));
+        let fxname = new Ast::PropName (new Ast::Name(attrs.ns, name, [tokenStream.length-1]));
         let fxtr = new Ast::NamespaceFixture (nsVal);
         cx.addFixture(Ast::varInit, fxname, fxtr, attrs.static);
     }
@@ -2828,6 +2832,7 @@ final class Parser
     function typeDefinitionOrDeclaration(attrs): void {
         eat (Token::Type);
         let typename = identifier();
+        let tokens = [tokenStream.length-1]
         let [formals, nonnullable] = typeSignature();
         let fx;
         if (match(Token::Assign)) {
@@ -2837,7 +2842,7 @@ final class Parser
         else
             fx = new Ast::TypeFixtureFwd(formals, nonnullable);
         semicolon (fullStmt);
-        cx.addFixture(Ast::varInit, new Ast::PropName (new Ast::Name(attrs.ns, typename)), fx, attrs.static);
+        cx.addFixture(Ast::varInit, new Ast::PropName (new Ast::Name(attrs.ns, typename,tokens)), fx, attrs.static);
     }
 
     // DIRECTIVES
@@ -3397,10 +3402,10 @@ final class Parser
         cx.enterGlobal ();
         if (define_namespaces) {
             cx.addFixture(Ast::varInit, 
-                          new Ast::PropName(new Ast::Name(internalNamespace, Token::sym_internal)),
+                          new Ast::PropName(new Ast::Name(internalNamespace, Token::sym_internal, [])),
                           new Ast::NamespaceFixture(internalNamespace));
             cx.addFixture(Ast::varInit,
-                          new Ast::PropName(new Ast::Name(internalNamespace, Token::sym_public)),
+                          new Ast::PropName(new Ast::Name(internalNamespace, Token::sym_public, [])),
                           new Ast::NamespaceFixture(Ast::publicNS));
         }
         cx.pushNamespace(internalNamespace);

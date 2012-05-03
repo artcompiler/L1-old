@@ -72,8 +72,10 @@ use namespace Abc,
 class KaryotypeEmitter {
     var chr_name = "";
 
+    var slotsStack = [ ];
     var defsStack = [ ];
     var refsStack = [ ];
+    var exprsStack = [ ];
     var blksStack = [ ];
     var bodsStack = [ ];
     var objsStack = [ ];
@@ -84,30 +86,24 @@ class KaryotypeEmitter {
 
     private var numRefs = 1;
 
-    function addDef(ctx, s="anonymous", val="null", isGlobal=false, toks=null) {
-        //print("addDef() s="+s+" count="+lastDef());
-        def(s, val, isGlobal, toks);
+    function addSlot(ctx, s="anonymous", val="null", isGlobal=false, toks=null) {
+        print("addSlot() count="+lastSlot());
+        slot(s, val, isGlobal, toks);
         return numRefs++;
     }
 
-    function addRef(ctx, s="empty", b="program", toks=null) {
-        //print("addRef() s="+s+" b="+b);
-        ref(s, b, toks);
-        return numRefs++;
-    }
-
-    function def(n, v, isGlobal, t) {
-        print("def() n="+n);
-        var def = {name: String(n), val: v, tokens: t}
+    function slot(n, v, isGlobal, t) {
+        print("slot() n="+n);
+        var slot = {name: String(n), val: v, tokens: t}
         if (isGlobal) {
-            var defs = defsStack[0]
+            var slots = slotsStack[0]
         }
         else {
-            var defs = defsStack[defsStack.length-1]
+            var slots = slotsStack[slotsStack.length-1]
         }
         
-        if (defs.every(notFound)) {
-            defs.push(def);
+        if (slots.every(notFound)) {
+            slots.push(slot);
         }
 
         function notFound(v, i, o) {
@@ -116,6 +112,12 @@ class KaryotypeEmitter {
             }
             return true;
         }
+    }
+
+    function addRef(ctx, s="empty", b="program", toks=null) {
+        //print("addRef() s="+s+" b="+b);
+        ref(s, b, toks);
+        return numRefs++;
     }
 
     function ref(n, b, t) {
@@ -135,9 +137,20 @@ class KaryotypeEmitter {
         }
     }
 
+    function addExpr(id, toks) {
+        //print("addRef() s="+s+" b="+b);
+        expr(id, toks);
+    }
 
-    function lastDef() {
-        return defsStack[defsStack.length-1].length;
+    function expr(i, t) {
+        t = t ? t : [ ]
+        var expr = {id: i, tokens: t}
+        var exprs = exprsStack[exprsStack.length-1]
+        exprs.push(expr)
+    }
+
+    function lastSlot() {
+        return slotsStack[slotsStack.length-1].length;
     }
 
     function lastRef() {
@@ -171,19 +184,46 @@ class KaryotypeEmitter {
         objsStack.push([]);
     }
 
-    function exitModule() {
+    function exitModule(pool) {
+        module.pool = pool.exprs
         //print(serialize(module));
         //module = null;
+    }
+
+    function enterTable(name="anonymous", alias="anonymous") {
+        var currentBods = bodsStack[bodsStack.length-1];
+        var currentBod = currentBods.length > 0 ? currentBods[currentBods.length-1] : { name: "null" };
+        //print("enterObj() name="+name+" alias="+alias+" outer="+currentBod.name);
+        var obj = { name: name, alias: alias, outer: currentBod.name, slots: [ ] };
+        objsStack[objsStack.length-1].push(obj);
+        slotsStack.push(obj.slots);
+    }
+
+    function currentTable() {
+        var currentObjs = objsStack[objsStack.length-1];
+        var currentObj = currentObjs.length > 0 ? currentObjs[currentObjs.length-1] : { name: "null" };
+        return currentObj;
+    }
+
+    function exitTable() {
+        slotsStack.pop();
+        var obj = objsStack[objsStack.length-1].pop();
+        //print("exitObj() name=" + obj.name);
+        //print("exitObj() " + serialize(obj));
+        module.objs.push(obj);
+        //for each (var ref in blks[0].refs) {
+        //    print("ref name="+ref.name+" base="+ref.base);
+        //}
     }
 
     function enterClosure(name="anonymous", alias="anonymous") {
         var currentBods = bodsStack[bodsStack.length-1];
         var currentBod = currentBods.length > 0 ? currentBods[currentBods.length-1] : { name: "null" };
-        print("enterClosure() name="+name+" alias="+alias+" outer="+currentBod.name);
+        //print("enterBody() name="+name+" alias="+alias+" outer="+currentBod.name);
         var closure = { name: name, alias: alias, outer: currentBod.name, slots: [ ], blocks: [ ] };
         bodsStack[bodsStack.length-1].push(closure);
         blksStack.push(closure.blocks);
-        //defsStack.push(closure.slots);
+        slotsStack.push(closure.slots);
         enterBlock()
     }
 
@@ -195,11 +235,10 @@ class KaryotypeEmitter {
 
     function exitClosure() {
         exitBlock()
+        slotsStack.pop();
         blksStack.pop();
         var body = bodsStack[bodsStack.length-1].pop();
         module.bods.push(body);
-        var currentBods = bodsStack[bodsStack.length-1];
-        print("exitClosure()")
     }
 
     function enterBody(name="anonymous", alias="anonymous") {
@@ -230,14 +269,15 @@ class KaryotypeEmitter {
 
     function enterBlock() {
         //print("enterBlock()");
-        var blk = { slots: [ ], defs: [ ], refs: [ ], preds: [ ], succs: [ ] }
+        var blk = { defs: [ ], refs: [ ], exprs: [ ], preds: [ ], succs: [ ] }
         blksStack[blksStack.length-1].push(blk);
-        //defsStack.push(blk.defs);
+        defsStack.push(blk.defs);
         refsStack.push(blk.refs);
-        defsStack.push(blk.slots);
+        exprsStack.push(blk.exprs);
     }
 
     function exitBlock() {
+        exprsStack.pop();
         refsStack.pop();
         defsStack.pop();
         //print("exitBlock()");

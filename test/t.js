@@ -1,3 +1,4 @@
+/*
 (function ($, _) {
     $.x();
     $.y();
@@ -15,14 +16,25 @@
 	}
    }
 )
+*/
+/*
+  // Returns a function that will be executed at most one time, no matter how
+  // often you call it. Useful for lazy initialization.
+  _.once = function(func) {
+    var ran = false, memo;
+    return function() {
+      if (ran) return memo;
+      ran = true;
+      return memo = func.apply(this, arguments);
+    };
+  };
 
-function f(n) {
-    x = a + b
-    y = x
-    if (y) {
-	x = c + d
-    }
+*/
+
+function f() {
     return x + y
 }
 
-f(10)
+function g() {
+    return x + y + z
+}

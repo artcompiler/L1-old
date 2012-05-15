@@ -157,7 +157,7 @@ class Name extends ASTNode implements Serializable {
 
     override function intern(pool) {
         let e = ["Name"]
-        e.push(id)
+        e.push(String(id))
         return pool.intern(e)
     }
 }
@@ -788,7 +788,7 @@ class InitExpr extends Expr implements Serializable {
 
     override function intern(pool) {
         let e = ["InitExpr"]
-        e.push(target)
+        e.push(String(target))
         for each (let i in inits) {
             e.push(i.intern(pool))
         }
@@ -929,7 +929,7 @@ class LiteralDouble extends Expr implements LiteralExpr, Serializable {
 
     override function intern(pool) {
         let e = ["LiteralDouble"]
-        e.push(doubleValue)
+        e.push('"'+doubleValue+'"')
         return pool.intern(e)
     }
 }
@@ -955,7 +955,7 @@ class LiteralInt extends Expr implements LiteralExpr, Serializable {
 
     override function intern(pool) {
         let e = ["LiteralInt"]
-        e.push(intValue)
+        e.push('"'+intValue+'"')
         return pool.intern(e)
     }
 }
@@ -987,7 +987,7 @@ class LiteralBoolean extends Expr implements LiteralExpr, Serializable {
 
     override function intern(pool) {
         let e = ["LiteralBoolean"]
-        e.push(booleanValue)
+        e.push(String(booleanValue))
         return pool.intern(e)
     }
 }
@@ -1142,6 +1142,12 @@ class VirtualField extends ASTNode implements Serializable {
     function serialize(s)
         s.sClass(this, "VirtualField", "tag", "name", "kind", "func");
 
+    override function intern(pool) {
+        let e = ["VirtualField"]
+        e.push(name.intern(pool))
+        e.push(func.intern(pool))
+        return pool.intern(e)
+    }
 }
 
 class LiteralFunction extends Expr implements LiteralExpr, Serializable {

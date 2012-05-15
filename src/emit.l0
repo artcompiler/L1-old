@@ -307,7 +307,7 @@ class KaryotypeEmitter {
                 str += obj[p];
                 break;
             case "string":
-                str += "'"+obj[p]+"'";
+                str += "'" + obj[p].replace(new RegExp("\\\\", "g"), "\\\\").replace(new RegExp("'", "g"), "\\'").replace(new RegExp("\n", "g"), "") + "'";
                 break;
             default:
                 if (obj[p] is Array) {
